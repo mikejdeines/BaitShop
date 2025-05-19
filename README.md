@@ -18,3 +18,5 @@ git clone https://github.com/mikejdeines/BaitShop
 cd BaitShop
 pip install .
 ```
+
+This package was built using python 3.10.16 on macOS 15.4.1.
