@@ -14,12 +14,13 @@ setup(
         'biopython',
         'pandas',
         'seqfold',
-        'concurrent.futures'
+        'concurrent.futures',
+        'numpy>=1.24.4<2.0.0'
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',
-        'Operating System :: OS Independent',
+        'Operating System :: macOS or Linux',
     ],
     python_requires='>=3.6',
 )
