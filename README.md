@@ -13,7 +13,8 @@ Exports a fasta file containing the full probe sequences.
 To install:
 
 ```
-conda create -n MERFISH_probe_design python=3.10
+conda create -n MERFISH_probe_design python=3.10 -y
+conda activate MERFISH_probe_design
 git clone https://github.com/mikejdeines/BaitShop
 cd BaitShop
 pip install .
