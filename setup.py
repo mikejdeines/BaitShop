@@ -14,7 +14,6 @@ setup(
         'biopython',
         'pandas',
         'seqfold',
-        'concurrent.futures',
         'numpy>=1.24.4,<2.0.0'
     ],
     classifiers=[
