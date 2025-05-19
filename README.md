@@ -1,7 +1,7 @@
 # BaitShop
 
 Creates a library of encoding probes suitable for MERFISH experiments.\
-Required inputs:\
+Required inputs:
 * Codebook with gene names in the 'name' column, ensembl transcript ids in the 'id' column, and 1 or 0 values for each readout probe.
 * Readout probe sequences (see Xia, C. et al. Proceedings of the National Academy of Sciences 116, 19490–19499 (2019)).
 * Forward and reverse primers.
