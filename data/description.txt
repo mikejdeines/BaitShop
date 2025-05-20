@@ -1,0 +1,1 @@
+This folder contains example data files for the codebook, readout probes, and primers.
