@@ -7,6 +7,7 @@ from Bio.SeqIO import write
 import pandas as pd
 import random
 import re
+import math
 from seqfold import dg
 from concurrent.futures import ThreadPoolExecutor
 
@@ -424,25 +425,37 @@ def filter_self_and_cross_complementary_probes(probes_dict, min_complement_lengt
     return filtered_probes_dict
 
 def assign_readouts_to_probes(selected_probes, codebook, readouts, num_readouts=2):
-    """
-    Assigns a specified number of random readout probes to each selected probe for each gene.
-
-    Args:
-        selected_probes (dict): Dictionary of selected probes per gene.
-        codebook (pd.DataFrame): DataFrame containing gene and readout information.
-        readouts (dict): Dictionary of available readout probes.
-        num_readouts (int): Number of readout probes to assign to each probe.
-
-    Returns:
-        dict: Updated selected_probes with 'readouts' key added to each probe.
-    """
     for gene, probes in selected_probes.items():
+        # Find available readouts for this gene
         readout_candidates = [
             readout for readout in readouts
             if codebook.loc[codebook['name'] == gene, readout].values[0] == 1
         ]
+        n_probes = len(probes)
+        n_readouts = len(readout_candidates)
+        total_assignments = n_probes * num_readouts
+
+        # Calculate how many times each readout should be assigned
+        base_count = total_assignments // n_readouts
+        extra = total_assignments % n_readouts
+
+        # Build a pool of assignments (balanced as possible)
+        assignment_pool = []
+        for i, readout in enumerate(readout_candidates):
+            count = base_count + (1 if i < extra else 0)
+            assignment_pool.extend([readout] * count)
+
+        random.shuffle(assignment_pool)
+
+        # Assign readouts to each probe
         for probe in probes:
-            probe['readouts'] = random.sample(readout_candidates, num_readouts)
+            # Take num_readouts from the pool for this probe
+            probe_assignments = [assignment_pool.pop() for _ in range(num_readouts)]
+            probe['readouts'] = probe_assignments
+
+        # Defensive: if assignment_pool is not empty, something went wrong
+        assert len(assignment_pool) == 0, "Mismatch in readout assignment pool size!"
+
     return selected_probes
 
 def export_probes_to_fasta(selected_probes, readouts, fprimer, rprimer, output_fasta_file="Test_probes.fasta"):
