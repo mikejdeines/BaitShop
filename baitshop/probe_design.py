@@ -435,10 +435,6 @@ def assign_readouts_to_probes(selected_probes, codebook, readouts, num_readouts=
         n_readouts = len(readout_candidates)
         total_assignments = n_probes * num_readouts
 
-        # Defensive: ensure enough unique readouts for assignment
-        if n_readouts < num_readouts:
-            raise ValueError(f"Not enough unique readouts for gene {gene} (needed {num_readouts}, got {n_readouts})")
-
         # Calculate how many times each readout should be assigned
         base_count = total_assignments // n_readouts
         extra = total_assignments % n_readouts
@@ -451,20 +447,10 @@ def assign_readouts_to_probes(selected_probes, codebook, readouts, num_readouts=
 
         random.shuffle(assignment_pool)
 
+        # Assign readouts to each probe
         for probe in probes:
-            assigned = set()
-            probe_assignments = []
-            while len(probe_assignments) < num_readouts:
-                if not assignment_pool:
-                    raise ValueError("Ran out of readouts in assignment pool!")
-                candidate = assignment_pool.pop()
-                if candidate not in assigned:
-                    probe_assignments.append(candidate)
-                    assigned.add(candidate)
-                else:
-                    # Put it back and reshuffle to avoid bias
-                    assignment_pool.append(candidate)
-                    random.shuffle(assignment_pool)
+            # Take num_readouts from the pool for this probe
+            probe_assignments = [assignment_pool.pop() for _ in range(num_readouts)]
             probe['readouts'] = probe_assignments
 
         # Defensive: if assignment_pool is not empty, something went wrong
