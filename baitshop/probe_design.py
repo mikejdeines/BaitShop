@@ -435,7 +435,6 @@ def assign_readouts_to_probes(selected_probes, codebook, readouts, num_readouts=
         n_readouts = len(readout_candidates)
         total_assignments = n_probes * num_readouts
 
-        # Defensive: ensure enough unique readouts for assignment
         if n_readouts < num_readouts:
             raise ValueError(f"Not enough unique readouts for gene {gene} (needed {num_readouts}, got {n_readouts})")
 
@@ -461,13 +460,9 @@ def assign_readouts_to_probes(selected_probes, codebook, readouts, num_readouts=
                 if candidate not in assigned:
                     probe_assignments.append(candidate)
                     assigned.add(candidate)
-                else:
-                    # Put it back and reshuffle to avoid bias
-                    assignment_pool.append(candidate)
-                    random.shuffle(assignment_pool)
+                # If candidate is already assigned, put it back and try another
             probe['readouts'] = probe_assignments
 
-        # Defensive: if assignment_pool is not empty, something went wrong
         assert len(assignment_pool) == 0, "Mismatch in readout assignment pool size!"
 
     return selected_probes
