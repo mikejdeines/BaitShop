@@ -425,6 +425,34 @@ def filter_self_and_cross_complementary_probes(probes_dict, min_complement_lengt
     return filtered_probes_dict
 
 def assign_readouts_to_probes(selected_probes, codebook, readouts, num_readouts=2):
+    """
+    Assign readouts to probes ensuring balanced distribution across all probes for each gene.
+    
+    This function implements an improved algorithm that ensures:
+    1. Each readout is assigned equally across all probes for a gene (round-robin allocation)
+    2. No probe receives the same readout more than once
+    3. The same readout is not assigned to the same gene more than its balanced quota
+    
+    The algorithm works by:
+    - Calculating a balanced quota for each readout based on total assignments needed
+    - Using a round-robin approach to systematically assign readouts to probes
+    - Ensuring even distribution by cycling through available readouts
+    
+    Args:
+        selected_probes (dict): Dictionary with gene names as keys and lists of probe 
+                               dictionaries as values. Each probe dictionary will be 
+                               modified to include a 'readouts' key.
+        codebook (pd.DataFrame): DataFrame containing gene information with readout 
+                                availability (1/0 values for each readout column).
+        readouts (list): List of readout column names available for assignment.
+        num_readouts (int): Number of readouts to assign to each probe.
+    
+    Returns:
+        dict: The same selected_probes dictionary with readouts assigned to each probe.
+    
+    Raises:
+        ValueError: If there are not enough unique readouts available for a gene.
+    """
     for gene, probes in selected_probes.items():
         # Find available readouts for this gene
         readout_candidates = [
@@ -439,36 +467,59 @@ def assign_readouts_to_probes(selected_probes, codebook, readouts, num_readouts=
         if n_readouts < num_readouts:
             raise ValueError(f"Not enough unique readouts for gene {gene} (needed {num_readouts}, got {n_readouts})")
 
-        # Calculate how many times each readout should be assigned
+        # Calculate how many times each readout should be assigned (balanced quota)
         base_count = total_assignments // n_readouts
         extra = total_assignments % n_readouts
 
-        # Build a pool of assignments (balanced as possible)
-        assignment_pool = []
+        # Create a balanced assignment schedule using round-robin allocation
+        # Each readout gets assigned base_count times, with the first 'extra' readouts getting one additional assignment
+        readout_quotas = {}
         for i, readout in enumerate(readout_candidates):
-            count = base_count + (1 if i < extra else 0)
-            assignment_pool.extend([readout] * count)
+            readout_quotas[readout] = base_count + (1 if i < extra else 0)
 
-        random.shuffle(assignment_pool)
-
+        # Track how many times each readout has been assigned
+        readout_usage = {readout: 0 for readout in readout_candidates}
+        
+        # Assign readouts to probes using round-robin approach
         for probe in probes:
-            assigned = set()
-            probe_assignments = []
-            while len(probe_assignments) < num_readouts:
-                if not assignment_pool:
-                    raise ValueError("Ran out of readouts in assignment pool!")
-                candidate = assignment_pool.pop()
-                if candidate not in assigned:
-                    probe_assignments.append(candidate)
-                    assigned.add(candidate)
+            probe['readouts'] = []
+            probe_assigned = set()  # Track readouts already assigned to this probe
+            
+            # For each readout slot in this probe
+            for readout_slot in range(num_readouts):
+                # Find the best readout to assign for this slot
+                best_readout = None
+                min_usage = float('inf')
+                
+                # Look for the readout with lowest usage that hasn't been assigned to this probe yet
+                for readout in readout_candidates:
+                    if (readout not in probe_assigned and 
+                        readout_usage[readout] < readout_quotas[readout] and
+                        readout_usage[readout] < min_usage):
+                        best_readout = readout
+                        min_usage = readout_usage[readout]
+                
+                # If no readout found with minimum usage, find any available readout
+                if best_readout is None:
+                    for readout in readout_candidates:
+                        if (readout not in probe_assigned and 
+                            readout_usage[readout] < readout_quotas[readout]):
+                            best_readout = readout
+                            break
+                
+                # Assign the selected readout
+                if best_readout is not None:
+                    probe['readouts'].append(best_readout)
+                    probe_assigned.add(best_readout)
+                    readout_usage[best_readout] += 1
                 else:
-                    # Put it back and reshuffle to avoid bias
-                    assignment_pool.append(candidate)
-                    random.shuffle(assignment_pool)
-            probe['readouts'] = probe_assignments
+                    raise ValueError(f"Cannot assign readout to probe in gene {gene} - insufficient readouts or quota exceeded")
 
-        # Defensive: if assignment_pool is not empty, something went wrong
-        assert len(assignment_pool) == 0, "Mismatch in readout assignment pool size!"
+        # Defensive: verify all readouts were assigned according to their quotas
+        for readout, used in readout_usage.items():
+            expected = readout_quotas[readout]
+            if used != expected:
+                raise ValueError(f"Readout assignment mismatch for {readout} in gene {gene}: used {used}, expected {expected}")
 
     return selected_probes
 
