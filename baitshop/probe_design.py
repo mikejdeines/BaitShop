@@ -5,6 +5,7 @@ from Bio.SeqUtils import gc_fraction
 from Bio.SeqRecord import SeqRecord
 from Bio.SeqIO import write
 import pandas as pd
+import numpy as np
 import random
 import re
 import math
@@ -424,9 +425,8 @@ def filter_self_and_cross_complementary_probes(probes_dict, min_complement_lengt
 
     return filtered_probes_dict
 
-def assign_readouts_to_probes(selected_probes, codebook, readouts, num_readouts=2):
+def assign_readouts_to_probes(selected_probes, codebook, readouts, num_readouts=2, equal_coverage=True, num_shuffles=100):
     for gene, probes in selected_probes.items():
-        # Find available readouts for this gene
         readout_candidates = [
             readout for readout in readouts
             if codebook.loc[codebook['name'] == gene, readout].values[0] == 1
@@ -435,26 +435,36 @@ def assign_readouts_to_probes(selected_probes, codebook, readouts, num_readouts=
         n_readouts = len(readout_candidates)
         total_assignments = n_probes * num_readouts
 
-        # Calculate how many times each readout should be assigned
-        base_count = total_assignments // n_readouts
-        extra = total_assignments % n_readouts
+        if num_readouts > n_readouts:
+            raise ValueError(f"Not enough readouts available for gene {gene} to assign {num_readouts} readouts per probe.")
 
-        # Build a pool of assignments (balanced as possible)
-        assignment_pool = []
-        for i, readout in enumerate(readout_candidates):
-            count = base_count + (1 if i < extra else 0)
-            assignment_pool.extend([readout] * count)
+        if num_readouts == n_readouts:
+        # Each probe gets all readouts, but shuffled order
+            for probe in probes:
+                shuffled = readout_candidates[:]   # make a copy
+                random.shuffle(shuffled)
+                probe['readouts'] = shuffled
+            continue
 
-        random.shuffle(assignment_pool)
+        if equal_coverage:
+            # Balanced pool assignment
+            base_count = total_assignments // n_readouts
+            extra = total_assignments % n_readouts
+            assignment_pool = []
+            for i, readout in enumerate(readout_candidates):
+                count = base_count + (1 if i < extra else 0)
+                assignment_pool.extend([readout] * count)
 
-        # Assign readouts to each probe
-        for probe in probes:
-            # Take num_readouts from the pool for this probe
-            probe_assignments = [assignment_pool.pop() for _ in range(num_readouts)]
-            probe['readouts'] = probe_assignments
+            random.shuffle(assignment_pool)
 
-        # Defensive: if assignment_pool is not empty, something went wrong
-        assert len(assignment_pool) == 0, "Mismatch in readout assignment pool size!"
+            for probe in probes:
+                probe['readouts'] = [assignment_pool.pop() for _ in range(num_readouts)]
+
+            assert len(assignment_pool) == 0, "Mismatch in readout assignment pool size!"
+        else:
+            # Independent random choice per probe
+            for probe in probes:
+                probe['readouts'] = np.random.choice(readout_candidates, size=num_readouts, replace=False).tolist()
 
     return selected_probes
 
