@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='baitshop',
-    version='0.1.0',
+    version='1.0.0',
     author='Michael J. Deines',
     author_email='michaeljdeines@gmail.com',
     description='A package for designing encoding probes for MERFISH.',
@@ -14,7 +14,8 @@ setup(
         'biopython',
         'pandas',
         'seqfold',
-        'numpy>=1.24.4,<2.0.0'
+        'numpy>=1.24.4,<2.0.0',
+        'ViennaRNA'
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
