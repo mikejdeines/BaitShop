@@ -10,6 +10,7 @@ import random
 import re
 import math
 from seqfold import dg
+import RNA
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -356,7 +357,7 @@ def filter_probes_by_deltaG_parallel(probes_dict, min_deltaG=0, temperature=76, 
     def filter_gene_probes(gene_symbol, probes):
         filtered = [
             probe_info for probe_info in probes
-            if dg(probe_info['sequence'], temperature) > min_deltaG
+            if dna_dg(probe_info['sequence'], temperature) > min_deltaG
         ]
         print(f"{gene_symbol}: {len(filtered)}/{len(probes)} probes retained after deltaG filtering")
         return gene_symbol, filtered
@@ -467,6 +468,25 @@ def assign_readouts_to_probes(selected_probes, codebook, readouts, num_readouts=
                 probe['readouts'] = np.random.choice(readout_candidates, size=num_readouts, replace=False).tolist()
 
     return selected_probes
+
+def dna_dg(sequence, temperature=76):
+    """
+    Calculate the deltaG of the minimum dG structure for a DNA sequence at a given temperature.
+
+    Args:
+        sequence (str): DNA sequence.
+        temperature (float): Temperature in °C.
+
+    Returns:
+        float: deltaG value.
+    """
+    md = RNA.md()
+    md.temperature = temperature
+    md.special_hp = False
+    md.dna = True
+    fc = RNA.fold_compound(sequence, md)
+    (structure, dG) = fc.mfe()
+    return dG
 
 def export_probes_to_fasta(selected_probes, readouts, fprimer, rprimer, output_fasta_file="Test_probes.fasta"):
     """
