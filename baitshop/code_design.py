@@ -486,13 +486,14 @@ def assign_barcodes_optimal_transport(genes,
     return assignment, metrics
 
 def select_best_isoform(isoform_expression, gene_names: List[str],
-                        appris_data):
+                        appris_data, transcript_lengths):
     """
     Select the best isoform for each gene based on APPRIS data and expression levels.
     Args:
         isoform_expression: DataFrame with isoform expression data (rows: isoforms, columns: samples)
         gene_names: List of gene names in the panel
         appris_data: DataFrame with APPRIS annotations (columns: 'isoform', 'gene', 'appris_level')
+        transcript_lengths: DataFrame with transcript lengths (columns: 'isoform', 'length')
     Returns:
         DataFrame with selected isoforms for each gene
     """
@@ -513,7 +514,13 @@ def select_best_isoform(isoform_expression, gene_names: List[str],
                 best_isoform = max(isoform_means, key=isoform_means.get)
                 selected_isoforms.append(best_isoform)
             else:
-                print(f"No expression data for isoforms of gene {gene}. Skipping.")
+                # Select longest isoform if no expression data
+                lengths = transcript_lengths[transcript_lengths['isoform'].isin(gene_isoforms['isoform'])]
+                if not lengths.empty:
+                    longest_isoform = lengths.loc[lengths['length'].idxmax()]['isoform']
+                    selected_isoforms.append(longest_isoform)
+                else:
+                    selected_isoforms.append(gene_isoforms['isoform'].values[0])  # Fallback
     isoform_df = pd.DataFrame({'gene': gene_names, 'selected_isoform': selected_isoforms})
     return isoform_df
 
