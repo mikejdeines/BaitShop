@@ -493,7 +493,7 @@ def select_best_isoform(isoform_expression, gene_names: List[str],
         isoform_expression: DataFrame with isoform expression data (rows: isoforms, columns: samples)
         gene_names: List of gene names in the panel
         appris_data: DataFrame with APPRIS annotations (columns: 'isoform', 'gene', 'appris_level')
-        transcript_lengths: DataFrame with transcript lengths (columns: 'isoform', 'length')
+        transcript_lengths: DataFrame with transcript lengths (columns: 'isoform', 'gene', 'length')
     Returns:
         DataFrame with selected isoforms for each gene
     """
@@ -501,7 +501,16 @@ def select_best_isoform(isoform_expression, gene_names: List[str],
     # Subset APPRIS data to PRINCIPAL:1 and PRINCIPAL:2
     appris_filtered = appris_data[appris_data['annotation_level'].isin(['PRINCIPAL:1', 'PRINCIPAL:2'])]
     for gene in gene_names:
-        gene_isoforms = appris_filtered[appris_filtered['gene'] == gene]
+        # Use transcript_lengths to inform possible transcripts for this gene
+        gene_transcripts = transcript_lengths[transcript_lengths['gene'] == gene]['isoform'].values if 'gene' in transcript_lengths.columns else []
+        
+        # Filter APPRIS data to only include transcripts present in transcript_lengths
+        if len(gene_transcripts) > 0:
+            gene_isoforms = appris_filtered[(appris_filtered['gene'] == gene) & 
+                                           (appris_filtered['isoform'].isin(gene_transcripts))]
+        else:
+            gene_isoforms = appris_filtered[appris_filtered['gene'] == gene]
+        
         if len(gene_isoforms) == 1:
             selected_isoforms.append(gene_isoforms['isoform'].values[0])
         else:
