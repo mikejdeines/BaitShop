@@ -511,25 +511,34 @@ def select_best_isoform(isoform_expression, gene_names: List[str],
         else:
             gene_isoforms = appris_filtered[appris_filtered['gene'] == gene]
         
-        if len(gene_isoforms) == 1:
-            selected_isoforms.append(gene_isoforms['isoform'].values[0])
-        else:
+        # If no APPRIS isoforms found, fall back to all transcripts from transcript_lengths
+        candidate_isoforms = gene_isoforms['isoform'].values if len(gene_isoforms) > 0 else gene_transcripts
+        
+        if len(candidate_isoforms) == 1:
+            selected_isoforms.append(candidate_isoforms[0])
+        elif len(candidate_isoforms) > 1:
             # Select isoform with highest mean expression
             isoform_means = {}
-            for isoform in gene_isoforms['isoform']:
+            for isoform in candidate_isoforms:
                 if isoform in isoform_expression['Name'].values:
-                    isoform_means[isoform] = isoform_expression[isoform_expression['Name'] == isoform]['TPM']
+                    isoform_means[isoform] = isoform_expression[isoform_expression['Name'] == isoform]['TPM'].mean()
             if isoform_means:
                 best_isoform = max(isoform_means, key=isoform_means.get)
                 selected_isoforms.append(best_isoform)
             else:
                 # Select longest isoform if no expression data
-                lengths = transcript_lengths[transcript_lengths['isoform'].isin(gene_isoforms['isoform'])]
+                lengths = transcript_lengths[transcript_lengths['isoform'].isin(candidate_isoforms)]
                 if not lengths.empty:
                     longest_isoform = lengths.loc[lengths['length'].idxmax()]['isoform']
                     selected_isoforms.append(longest_isoform)
                 else:
-                    selected_isoforms.append(gene_isoforms['isoform'].values[0])  # Fallback
+                    selected_isoforms.append(candidate_isoforms[0])  # Fallback
+        else:
+            # No candidates found at all - should not happen, but handle gracefully
+            if len(gene_transcripts) > 0:
+                selected_isoforms.append(gene_transcripts[0])
+            else:
+                raise ValueError(f"No isoforms found for gene {gene}")
     isoform_df = pd.DataFrame({'gene': gene_names, 'selected_isoform': selected_isoforms})
     return isoform_df
 
