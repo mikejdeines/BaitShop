@@ -141,25 +141,31 @@ def compute_full_cost_matrix(correlation_matrix,
     # Initialize cost tensor
     cost_tensor = np.zeros((n_genes, n_barcodes, n_genes, n_barcodes))
     
-    # Convert distance to penalty based on the chosen function
+    # Convert distance to reward based on the chosen function
+    # We want high correlation + high distance = low cost (good assignment)
+    # So we use negative distance or (max_distance - distance)
     if penalty_function == 'inverse':
-        # f(D) = 1/(1 + D), so high distance -> low penalty
-        penalty_matrix = 1.0 / (1.0 + distance_matrix)
+        # f(D) = max_D - D, so high distance -> high reward -> low cost
+        max_d = np.max(distance_matrix)
+        reward_matrix = max_d - distance_matrix if max_d > 0 else np.zeros_like(distance_matrix)
     elif penalty_function == 'exponential':
-        # f(D) = exp(-lambda * D), with lambda chosen so exp(-lambda * max_D) ≈ 0.1
+        # f(D) = max_D * (1 - exp(-lambda * D)), so high distance -> high reward
         max_d = np.max(distance_matrix)
-        lambda_val = -np.log(0.1) / max_d if max_d > 0 else 1.0
-        penalty_matrix = np.exp(-lambda_val * distance_matrix)
+        lambda_val = 3.0 / max_d if max_d > 0 else 1.0
+        reward_matrix = max_d * (1 - np.exp(-lambda_val * distance_matrix))
     elif penalty_function == 'linear':
-        # f(D) = (max_D - D) / max_D, so high distance -> low penalty
-        max_d = np.max(distance_matrix)
-        penalty_matrix = (max_d - distance_matrix) / max_d if max_d > 0 else np.ones_like(distance_matrix)
+        # f(D) = D (direct), so high distance -> high reward
+        reward_matrix = distance_matrix
     else:
         raise ValueError(f"Unknown penalty function: {penalty_function}")
     
     # Fill the cost tensor
     # Cost when gene i->barcode k and gene j->barcode l is:
-    # C_ij * f(D_kl) for i ≠ j and k ≠ l
+    # max(0, C_ij) * (max_D - D_kl) for i ≠ j and k ≠ l
+    # We only use positive correlations since negatively correlated genes
+    # are already distinguishable by opposite expression patterns
+    # This means: high positive correlation + low distance = high cost (bad)
+    #            high positive correlation + high distance = low cost (good)
     for i in range(n_genes):
         for k in range(n_barcodes):
             for j in range(n_genes):
@@ -168,9 +174,11 @@ def compute_full_cost_matrix(correlation_matrix,
                         # No cost for same gene or same barcode
                         cost_tensor[i, k, j, l] = 0
                     else:
-                        # High correlation + low distance = high cost (bad)
-                        # High correlation + high distance = low cost (good)
-                        cost_tensor[i, k, j, l] = correlation_matrix[i, j] * penalty_matrix[k, l]
+                        # High positive correlation + high distance = low cost (good)
+                        # Use max(0, correlation) to ignore negative correlations
+                        # Use (max_D - D) so that small distances increase cost
+                        pos_corr = max(0, correlation_matrix[i, j])
+                        cost_tensor[i, k, j, l] = pos_corr * reward_matrix[k, l]
     
     return cost_tensor
 
@@ -192,30 +200,34 @@ def compute_linearized_cost_matrix(correlation_matrix,
     n_genes = correlation_matrix.shape[0]
     n_barcodes = distance_matrix.shape[0]
     
-    # Convert distance to penalty
+    # Convert distance to reward - we want to maximize distance for high correlation
     if penalty_function == 'inverse':
-        penalty_matrix = 1.0 / (1.0 + distance_matrix)
+        max_d = np.max(distance_matrix)
+        reward_matrix = max_d - distance_matrix if max_d > 0 else np.zeros_like(distance_matrix)
     elif penalty_function == 'exponential':
         max_d = np.max(distance_matrix)
-        lambda_val = -np.log(0.1) / max_d if max_d > 0 else 1.0
-        penalty_matrix = np.exp(-lambda_val * distance_matrix)
+        lambda_val = 3.0 / max_d if max_d > 0 else 1.0
+        reward_matrix = max_d * (1 - np.exp(-lambda_val * distance_matrix))
     else:  # linear
-        max_d = np.max(distance_matrix)
-        penalty_matrix = (max_d - distance_matrix) / max_d if max_d > 0 else np.ones_like(distance_matrix)
+        reward_matrix = distance_matrix
     
     cost_matrix = np.zeros((n_genes, n_barcodes))
     
     for i in range(n_genes):
         for k in range(n_barcodes):
             # Cost for assigning gene i to barcode k is the sum over all other genes j
-            # of: correlation(i,j) * average_penalty_to_other_barcodes(k)
+            # of: max(0, correlation(i,j)) * average_reward_to_other_barcodes(k)
+            # We only use positive correlations to prioritize separating similar genes
+            # We use (max_D - D) so high distances give low cost
             total_cost = 0
             for j in range(n_genes):
                 if i != j:
-                    # Average penalty from barcode k to all other barcodes
+                    # Average reward from barcode k to all other barcodes
                     other_barcodes = [l for l in range(n_barcodes) if l != k]
-                    avg_penalty = np.mean(penalty_matrix[k, other_barcodes])
-                    total_cost += correlation_matrix[i, j] * avg_penalty
+                    avg_reward = np.mean(reward_matrix[k, other_barcodes])
+                    # Only consider positive correlations
+                    pos_corr = max(0, correlation_matrix[i, j])
+                    total_cost += pos_corr * avg_reward
             cost_matrix[i, k] = total_cost
     
     return cost_matrix
