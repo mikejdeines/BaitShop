@@ -141,31 +141,25 @@ def compute_full_cost_matrix(correlation_matrix,
     # Initialize cost tensor
     cost_tensor = np.zeros((n_genes, n_barcodes, n_genes, n_barcodes))
     
-    # Convert distance to reward based on the chosen function
-    # We want high correlation + high distance = low cost (good assignment)
-    # So we use negative distance or (max_distance - distance)
+    # Convert distance to penalty based on the chosen function
     if penalty_function == 'inverse':
-        # f(D) = max_D - D, so high distance -> high reward -> low cost
-        max_d = np.max(distance_matrix)
-        reward_matrix = max_d - distance_matrix if max_d > 0 else np.zeros_like(distance_matrix)
+        # f(D) = 1/(1 + D), so high distance -> low penalty
+        penalty_matrix = 1.0 / (1.0 + distance_matrix)
     elif penalty_function == 'exponential':
-        # f(D) = max_D * (1 - exp(-lambda * D)), so high distance -> high reward
+        # f(D) = exp(-lambda * D), with lambda chosen so exp(-lambda * max_D) ≈ 0.1
         max_d = np.max(distance_matrix)
-        lambda_val = 3.0 / max_d if max_d > 0 else 1.0
-        reward_matrix = max_d * (1 - np.exp(-lambda_val * distance_matrix))
+        lambda_val = -np.log(0.1) / max_d if max_d > 0 else 1.0
+        penalty_matrix = np.exp(-lambda_val * distance_matrix)
     elif penalty_function == 'linear':
-        # f(D) = D (direct), so high distance -> high reward
-        reward_matrix = distance_matrix
+        # f(D) = (max_D - D) / max_D, so high distance -> low penalty
+        max_d = np.max(distance_matrix)
+        penalty_matrix = (max_d - distance_matrix) / max_d if max_d > 0 else np.ones_like(distance_matrix)
     else:
         raise ValueError(f"Unknown penalty function: {penalty_function}")
     
     # Fill the cost tensor
     # Cost when gene i->barcode k and gene j->barcode l is:
-    # max(0, C_ij) * (max_D - D_kl) for i ≠ j and k ≠ l
-    # We only use positive correlations since negatively correlated genes
-    # are already distinguishable by opposite expression patterns
-    # This means: high positive correlation + low distance = high cost (bad)
-    #            high positive correlation + high distance = low cost (good)
+    # C_ij * f(D_kl) for i ≠ j and k ≠ l
     for i in range(n_genes):
         for k in range(n_barcodes):
             for j in range(n_genes):
@@ -174,11 +168,9 @@ def compute_full_cost_matrix(correlation_matrix,
                         # No cost for same gene or same barcode
                         cost_tensor[i, k, j, l] = 0
                     else:
-                        # High positive correlation + high distance = low cost (good)
-                        # Use max(0, correlation) to ignore negative correlations
-                        # Use (max_D - D) so that small distances increase cost
-                        pos_corr = max(0, correlation_matrix[i, j])
-                        cost_tensor[i, k, j, l] = pos_corr * reward_matrix[k, l]
+                        # High correlation + low distance = high cost (bad)
+                        # High correlation + high distance = low cost (good)
+                        cost_tensor[i, k, j, l] = correlation_matrix[i, j] * penalty_matrix[k, l]
     
     return cost_tensor
 
@@ -200,34 +192,30 @@ def compute_linearized_cost_matrix(correlation_matrix,
     n_genes = correlation_matrix.shape[0]
     n_barcodes = distance_matrix.shape[0]
     
-    # Convert distance to reward - we want to maximize distance for high correlation
+    # Convert distance to penalty
     if penalty_function == 'inverse':
-        max_d = np.max(distance_matrix)
-        reward_matrix = max_d - distance_matrix if max_d > 0 else np.zeros_like(distance_matrix)
+        penalty_matrix = 1.0 / (1.0 + distance_matrix)
     elif penalty_function == 'exponential':
         max_d = np.max(distance_matrix)
-        lambda_val = 3.0 / max_d if max_d > 0 else 1.0
-        reward_matrix = max_d * (1 - np.exp(-lambda_val * distance_matrix))
+        lambda_val = -np.log(0.1) / max_d if max_d > 0 else 1.0
+        penalty_matrix = np.exp(-lambda_val * distance_matrix)
     else:  # linear
-        reward_matrix = distance_matrix
+        max_d = np.max(distance_matrix)
+        penalty_matrix = (max_d - distance_matrix) / max_d if max_d > 0 else np.ones_like(distance_matrix)
     
     cost_matrix = np.zeros((n_genes, n_barcodes))
     
     for i in range(n_genes):
         for k in range(n_barcodes):
             # Cost for assigning gene i to barcode k is the sum over all other genes j
-            # of: max(0, correlation(i,j)) * average_reward_to_other_barcodes(k)
-            # We only use positive correlations to prioritize separating similar genes
-            # We use (max_D - D) so high distances give low cost
+            # of: correlation(i,j) * average_penalty_to_other_barcodes(k)
             total_cost = 0
             for j in range(n_genes):
                 if i != j:
-                    # Average reward from barcode k to all other barcodes
+                    # Average penalty from barcode k to all other barcodes
                     other_barcodes = [l for l in range(n_barcodes) if l != k]
-                    avg_reward = np.mean(reward_matrix[k, other_barcodes])
-                    # Only consider positive correlations
-                    pos_corr = max(0, correlation_matrix[i, j])
-                    total_cost += pos_corr * avg_reward
+                    avg_penalty = np.mean(penalty_matrix[k, other_barcodes])
+                    total_cost += correlation_matrix[i, j] * avg_penalty
             cost_matrix[i, k] = total_cost
     
     return cost_matrix
@@ -449,6 +437,13 @@ def assign_barcodes_optimal_transport(genes,
     n_genes = len(genes)
     n_barcodes = len(barcodes)
     
+    # Validate that we have enough barcodes
+    if n_barcodes < len(correlation_matrix):
+        raise ValueError(
+            f"Insufficient barcodes: {n_barcodes} barcodes provided but "
+            f"{len(correlation_matrix)} required (correlation_matrix size)"
+        )
+    
     print(f"Assigning {n_genes} genes to pool of {n_barcodes} barcodes...")
     
     # Step 1: If we have more barcodes than genes, select a diverse subset
@@ -468,16 +463,10 @@ def assign_barcodes_optimal_transport(genes,
     n_working = len(working_barcodes)
     
     # Step 2: Compute cost matrix
-    if use_full_cost:
+    if use_full_cost and method == 'simulated_annealing':
         print("Computing full cost tensor...")
         cost_tensor = compute_full_cost_matrix(correlation_matrix, working_distance_matrix)
-        
-        if method == 'simulated_annealing':
-            assignment_working = solve_with_simulated_annealing(cost_tensor)
-        else:
-            # For full cost with Hungarian, we need to linearize
-            cost_matrix = compute_linearized_cost_matrix(correlation_matrix, working_distance_matrix)
-            assignment_working = solve_with_hungarian(cost_matrix)
+        assignment_working = solve_with_simulated_annealing(cost_tensor)
     else:
         print("Computing linearized cost matrix...")
         cost_matrix = compute_linearized_cost_matrix(correlation_matrix, working_distance_matrix)
