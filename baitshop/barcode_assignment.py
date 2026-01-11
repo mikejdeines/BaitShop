@@ -426,7 +426,7 @@ def assign_barcodes_lowrank_gw(
 
     # 5) Geometry for barcodes
     D = jnp.array(distance_matrix)
-    geom_barcodes = geometry.Geometry(cost=D, epsilon=epsilon)
+    geom_barcodes = geometry.Geometry(cost_matrix=D, epsilon=epsilon)
 
     # 6) Uniform marginals
     a = jnp.ones(n) / n
