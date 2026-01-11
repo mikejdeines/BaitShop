@@ -400,7 +400,6 @@ def assign_barcodes_lowrank_gw(
 
     Returns:
         assignment: Array of length n (barcode index per gene)
-        coupling: Soft coupling matrix (n x m)
     """
 
     n = correlation_matrix.shape[0]
@@ -427,6 +426,10 @@ def assign_barcodes_lowrank_gw(
     # 5) Geometry for barcodes
     D = jnp.array(distance_matrix)
     geom_barcodes = geometry.Geometry(cost_matrix=D, epsilon=epsilon)
+    
+    # 5b) Geometry for genes (using low-rank representation)
+    C_jax = jnp.array(C)
+    geom_genes = geometry.Geometry(cost_matrix=C_jax, epsilon=epsilon)
 
     # 6) Uniform marginals
     a = jnp.ones(n) / n
@@ -438,12 +441,11 @@ def assign_barcodes_lowrank_gw(
         epsilon=epsilon,
         max_iterations=max_iterations,
     )
-    out = solver.solve(
+    out = solver(
+        geom_genes,
         geom_barcodes,
         a=a,
         b=b,
-        x=U,
-        x_cost_matrix=C,  # optional full C
     )
 
     coupling = out.matrix  # soft coupling (n x m)
@@ -451,4 +453,4 @@ def assign_barcodes_lowrank_gw(
     # 8) Hard assignment
     assignment = jnp.argmax(coupling, axis=1)
 
-    return np.array(assignment), coupling
+    return np.array(assignment)
