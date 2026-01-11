@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import scipy.optimize as opt
 from ott.geometry import geometry
+from ott.problems.quadratic import quadratic_problem
 from ott.solvers.quadratic.gromov_wasserstein_lr import LRGromovWasserstein
 from typing import List, Tuple
 
@@ -435,22 +436,25 @@ def assign_barcodes_lowrank_gw(
     a = jnp.ones(n) / n
     b = jnp.ones(m) / m
 
-    # 7) Solve low-rank GW
+    # 7) Create quadratic problem
+    prob = quadratic_problem.QuadraticProblem(
+        geom_xx=geom_genes,
+        geom_yy=geom_barcodes,
+        a=a,
+        b=b,
+    )
+
+    # 8) Solve low-rank GW
     solver = LRGromovWasserstein(
         rank=r,
         epsilon=epsilon,
         max_iterations=max_iterations,
     )
-    out = solver(
-        geom_genes,
-        geom_barcodes,
-        a=a,
-        b=b,
-    )
+    out = solver(prob)
 
     coupling = out.matrix  # soft coupling (n x m)
 
-    # 8) Hard assignment
+    # 9) Hard assignment
     assignment = jnp.argmax(coupling, axis=1)
 
     return np.array(assignment)
