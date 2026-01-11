@@ -15,7 +15,9 @@ setup(
         'pandas',
         'seqfold',
         'numpy>=1.24.4,<2.0.0',
-        'ViennaRNA'
+        'ViennaRNA',
+        'jax==0.6.2',
+        'ott-jax==0.6.0'
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
