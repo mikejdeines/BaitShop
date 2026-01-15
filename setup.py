@@ -17,7 +17,9 @@ setup(
         'numpy>=1.24.4,<2.0.0',
         'ViennaRNA',
         'jax==0.6.2',
-        'ott-jax==0.6.0'
+        'ott-jax==0.6.0',
+        'scikit-learn',
+        'requests'
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
