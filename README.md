@@ -1,12 +1,8 @@
 # BaitShop
 
-Creates a library of encoding probes suitable for MERFISH experiments.\
-Required inputs:
-* Codebook with gene names in the 'name' column, ensembl transcript ids in the 'id' column, and 1 or 0 values for each readout probe.
-* Readout probe sequences (see Xia, C. et al. Proceedings of the National Academy of Sciences 116, 19490–19499 (2019)).
-* Forward and reverse primers.
-* a cDNA fasta file (e.g. https://ftp.ensembl.org/pub/release-114/fasta/mus_musculus/cdna/Mus_musculus.GRCm39.cdna.all.fa.gz)
-* a ncRNA fasta file (e.g. https://ftp.ensembl.org/pub/release-114/fasta/mus_musculus/ncrna/Mus_musculus.GRCm39.ncrna.fa.gz)
+An all-in-one solution for MERFISH probe design!
+
+Includes methods for isoform selection, HD4 codebook design, barcode assignment to genes, and oligonucleotide probe design.
 
 Exports a fasta file containing the full probe sequences.
 
@@ -20,4 +16,6 @@ cd BaitShop
 pip install .
 ```
 
-This package was built using python 3.10.16 on macOS 15.4.1.
+This package was built using python 3.10.16 on macOS 15.4.1, and has been tested on Rocky Linux 9, Ubuntu 22.04.5 and macOS 26.1.
+
+Example notebooks include codebook design for a 100 gene panel and probe design for _Mus musculus_ _Rorb_, _Cux2_, and _Rbp4_.
