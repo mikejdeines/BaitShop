@@ -336,7 +336,6 @@ def assign_barcodes_linear(genes,
     
     print(f"Assigning {n_genes} genes to pool of {n_barcodes} barcodes...")
     
-    # Step 1: If we have more barcodes than genes, select a diverse subset
     if n_barcodes > n_genes:
         print("Selecting diverse barcode subset...")
         selected_barcode_indices = select_diverse_barcodes(distance_matrix, n_genes)
@@ -352,7 +351,6 @@ def assign_barcodes_linear(genes,
     
     n_working = len(working_barcodes)
     
-    # Step 2: Compute cost matrix
     if use_full_cost and method == 'simulated_annealing':
         print("Computing full cost tensor...")
         cost_tensor = compute_full_cost_matrix(correlation_matrix, working_distance_matrix)
@@ -362,7 +360,6 @@ def assign_barcodes_linear(genes,
         cost_matrix = compute_linearized_cost_matrix(correlation_matrix, working_distance_matrix)
         assignment_working = solve_with_hungarian(cost_matrix)
     
-    # Step 3: Map back to original barcode indices if we used subset selection
     if n_barcodes > n_genes:
         assignment = original_to_working[assignment_working]
         # For evaluation, use full distance matrix
@@ -370,8 +367,6 @@ def assign_barcodes_linear(genes,
     else:
         assignment = assignment_working
         eval_distance_matrix = working_distance_matrix
-    
-    # Step 4: Evaluate assignment quality
     metrics = evaluate_assignment(correlation_matrix, eval_distance_matrix, assignment)
     
     return assignment, metrics
@@ -406,45 +401,36 @@ def assign_barcodes_lowrank_gw(
     n = correlation_matrix.shape[0]
     m = distance_matrix.shape[0]
 
-    # 1) Symmetrize correlation matrix
     C = 0.5 * (correlation_matrix + correlation_matrix.T)
 
-    # 2) Eigen-decomposition for low-rank factorization
     eigvals, eigvecs = np.linalg.eigh(C)
     eigvals_sorted_idx = np.argsort(eigvals)[::-1]  # descending
     eigvals_sorted = eigvals[eigvals_sorted_idx]
     eigvecs_sorted = eigvecs[:, eigvals_sorted_idx]
 
-    # 3) Determine rank r to capture desired variance_fraction
+    # Determine rank r to capture desired variance_fraction
     cumulative_variance = np.cumsum(np.maximum(eigvals_sorted, 0))
     total_variance = cumulative_variance[-1]
     r = int(np.searchsorted(cumulative_variance / total_variance, variance_fraction)) + 1
 
-    # 4) Construct low-rank U
     U = eigvecs_sorted[:, :r] @ np.diag(np.sqrt(np.maximum(eigvals_sorted[:r], 0.0)))
     U = jnp.array(U)
 
-    # 5) Geometry for barcodes
     D = jnp.array(distance_matrix)
     geom_barcodes = geometry.Geometry(cost_matrix=D, epsilon=epsilon)
     
-    # 5b) Geometry for genes (using low-rank representation)
     C_jax = jnp.array(C)
     geom_genes = geometry.Geometry(cost_matrix=C_jax, epsilon=epsilon)
 
-    # 6) Uniform marginals
+    # Uniform marginals
     a = jnp.ones(n) / n
     b = jnp.ones(m) / m
-
-    # 7) Create quadratic problem
     prob = quadratic_problem.QuadraticProblem(
         geom_xx=geom_genes,
         geom_yy=geom_barcodes,
         a=a,
         b=b,
     )
-
-    # 8) Solve low-rank GW
     solver = LRGromovWasserstein(
         rank=r,
         epsilon=epsilon,
@@ -453,8 +439,7 @@ def assign_barcodes_lowrank_gw(
     out = solver(prob)
 
     coupling = out.matrix  # soft coupling (n x m)
-
-    # 9) Hard assignment
-    assignment = jnp.argmax(coupling, axis=1)
-
+    gene_idx, barcode_idx = opt.linear_sum_assignment(-coupling)
+    assignment = np.empty(n, dtype=int)
+    assignment[gene_idx] = barcode_idx
     return np.array(assignment)
