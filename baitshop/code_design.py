@@ -170,7 +170,7 @@ def select_best_isoform(isoform_expression, gene_names: List[str],
     return isoform_df
 
 def create_codebook(genes: List[str], barcodes: List[str], assignment: np.ndarray,
-                    isoform_df: pd.DataFrame, readouts) -> pd.DataFrame:
+                    isoform_df: pd.DataFrame, readouts, include_blank: bool) -> pd.DataFrame:
     """
     Create a codebook DataFrame mapping genes to assigned barcodes and selected isoforms.
     Args:
@@ -178,11 +178,15 @@ def create_codebook(genes: List[str], barcodes: List[str], assignment: np.ndarra
         barcodes: List of barcode strings
         assignment: Array where assignment[i] is barcode index for gene i
         isoform_df: DataFrame with selected isoforms for each gene
+    Returns:
+        DataFrame with columns: 'name', 'id', and one column for each readout indicating presence (1) or absence (0)
     """
     codebook_rows = []
     readout_names = list(readouts.keys())
+    assigned_barcode_indices = set()
     for i, gene in enumerate(genes):
         barcode_index = assignment[i]
+        assigned_barcode_indices.add(barcode_index)
         barcode = barcodes[barcode_index]
         selected_isoform = isoform_df[isoform_df['gene'] == gene]['selected_isoform'].values[0]
         row = {
@@ -193,5 +197,18 @@ def create_codebook(genes: List[str], barcodes: List[str], assignment: np.ndarra
             readout_name = readout_names[j]
             row[readout_name] = int(bit)
         codebook_rows.append(row)
+
+    if include_blank:
+        # Assign unassigned barcodes to Blank genes
+        blank_idx = 0
+        for idx, barcode in enumerate(barcodes):
+            if idx not in assigned_barcode_indices:
+                row = {'name': f'Blank{blank_idx}', 'id': f'Blank{blank_idx}'}
+                for j, bit in enumerate(barcode):
+                    readout_name = readout_names[j]
+                    row[readout_name] = int(bit)
+                codebook_rows.append(row)
+                blank_idx += 1
+
     codebook_df = pd.DataFrame(codebook_rows)
     return codebook_df
