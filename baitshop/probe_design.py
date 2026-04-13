@@ -8,10 +8,8 @@ import pandas as pd
 import numpy as np
 import random
 import re
-import math
-from seqfold import dg
 import RNA
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def filter_trna_rrna(input_fasta, output_fasta):
@@ -28,7 +26,7 @@ def filter_trna_rrna(input_fasta, output_fasta):
             # Check for tRNA, rRNA, mt-tRNA, or mt-rRNA in the description
             if any(x in desc for x in ["tRNA", "rRNA", "mt-tRNA", "mt-rRNA"]):
                 SeqIO.write(record, out_fasta, "fasta")
-    print(f"Filtered tRNA, rRNA, mt-tRNA, and mt-rRNA sequences saved to {output_fasta}")
+    print(f"Filtered tRNA, rRNA, mt-tRNA, and mt-rRNA sequences saved to {output_fasta}", flush=True)
 
 def generate_probes_dict_by_gene(codebook, sequences, overlap=0):
     """
@@ -48,7 +46,7 @@ def generate_probes_dict_by_gene(codebook, sequences, overlap=0):
         transcripts = codebook[codebook['name'] == gene_symbol]  # Filter transcripts by gene symbol
         
         if transcripts.empty:
-            print(f"Warning: Gene symbol {gene_symbol} not found in the codebook.")
+            print(f"Warning: Gene symbol {gene_symbol} not found in the codebook.", flush=True)
             continue
         
         probes_dict[gene_symbol] = []
@@ -61,7 +59,7 @@ def generate_probes_dict_by_gene(codebook, sequences, overlap=0):
                 # Append each region with transcript_id information
                 probes_dict[gene_symbol].extend([{'transcript_id': transcript_id, 'sequence': region} for region in regions])
             else:
-                print(f"Warning: Transcript ID {transcript_id} not found in the .fasta file.")
+                print(f"Warning: Transcript ID {transcript_id} not found in the .fasta file.", flush=True)
     return probes_dict
 
 def calculate_gc_and_tm(probes_dict):
@@ -113,7 +111,7 @@ def filter_probes_by_homopolymer(probes_dict, max_homopolymer_length=5):
         ]
         retained = len(filtered_probes)
         filtered_probes_dict[gene_symbol] = filtered_probes
-        print(f"{gene_symbol}: {retained}/{started} probes retained with homopolymeric runs of length <= {max_homopolymer_length}")
+        print(f"{gene_symbol}: {retained}/{started} probes retained with homopolymeric runs of length <= {max_homopolymer_length}", flush=True)
     
     return filtered_probes_dict
 
@@ -143,7 +141,7 @@ def filter_probes_by_gc_and_tm(probes_dict, min_gc=0.3, max_gc=0.7, min_tm=61, m
         ]
         retained = len(filtered_probes)
         filtered_probes_dict[gene_symbol] = filtered_probes
-        print(f"{gene_symbol}: {retained}/{started} probes retained with {min_gc} < GC < {max_gc} and {min_tm} < Tm < {max_tm}")
+        print(f"{gene_symbol}: {retained}/{started} probes retained with {min_gc} < GC < {max_gc} and {min_tm} < Tm < {max_tm}", flush=True)
     return filtered_probes_dict
 
 def extract_15mers_from_trna_rrna(trna_rrna_fasta):
@@ -187,7 +185,7 @@ def filter_probes_by_trna_rrna_homology(probes_dict, trna_rrna_kmers):
             if not has_homology:
                 filtered_probes_dict[gene_symbol].append(probe_info)
         retained = len(filtered_probes_dict[gene_symbol])
-        print(f"{gene_symbol}: {retained}/{started} probes retained after filtering by tRNA/rRNA homology")
+        print(f"{gene_symbol}: {retained}/{started} probes retained after filtering by tRNA/rRNA homology", flush=True)
     return filtered_probes_dict
 
 def extract_17mers_by_gene(sequences, codebook):
@@ -221,36 +219,36 @@ def extract_17mers_by_gene(sequences, codebook):
 
     return gene_to_17mers
 
-def filter_probes_by_homology_threshold(probes_dict, gene_to_17mers, homology_threshold=0.8):
+def filter_probes_by_homology_threshold(probes_dict, gene_to_17mers, homology_threshold=0.8, num_workers=None):
     """
     Filter probes with more than a specified homology threshold to any 17-mer of cDNA from other genes,
-    checking both the probe and its reverse complement.
+    checking both the probe and its reverse complement. Runs in parallel across genes.
 
     Args:
         probes_dict (dict): Dictionary of probes per gene.
         gene_to_17mers (dict): Dictionary mapping gene symbols to sets of 17-mers from other genes.
         homology_threshold (float): Maximum allowed homology (fraction) to 17-mers.
+        num_workers (int | None): Number of threads. Defaults to min(32, os.cpu_count() + 4).
 
     Returns:
         dict: Filtered probes dictionary.
     """
+
     def calculate_homology(seq1, seq2):
         """Calculate the fraction of matching bases between two sequences."""
         matches = sum(1 for a, b in zip(seq1, seq2) if a == b)
         return matches / len(seq1)
 
-    filtered_probes_dict = {}
-    for gene_symbol, probes in probes_dict.items():
+    def process_gene(gene_symbol, probes):
         started = len(probes)
         cdna_kmers = gene_to_17mers.get(gene_symbol, set())
 
         # Precompute a dictionary of 17-mers grouped by their hash
         kmer_hash_map = {}
         for kmer in cdna_kmers:
-            kmer_hash = hash(kmer)
-            kmer_hash_map.setdefault(kmer_hash, []).append(kmer)
+            kmer_hash_map.setdefault(hash(kmer), []).append(kmer)
 
-        filtered_probes_dict[gene_symbol] = []
+        retained_probes = []
         for probe_info in probes:
             sequence = probe_info['sequence']
             rc_sequence = str(Seq(sequence).reverse_complement())
@@ -262,19 +260,37 @@ def filter_probes_by_homology_threshold(probes_dict, gene_to_17mers, homology_th
                     probe_kmer = seq_variant[i:i+17]
                     probe_kmer_hash = hash(probe_kmer)
                     if probe_kmer_hash in kmer_hash_map:
-                        for kmer in kmer_hash_map[probe_kmer_hash]:
-                            if calculate_homology(probe_kmer, kmer) > homology_threshold:
-                                has_high_homology = True
-                                break
-                    if has_high_homology:
-                        break
+                        if any(
+                            calculate_homology(probe_kmer, kmer) > homology_threshold
+                            for kmer in kmer_hash_map[probe_kmer_hash]
+                        ):
+                            has_high_homology = True
+                            break
                 if has_high_homology:
                     break
 
             if not has_high_homology:
-                filtered_probes_dict[gene_symbol].append(probe_info)
-        retained = len(filtered_probes_dict[gene_symbol])
-        print(f"{gene_symbol}: {retained}/{started} probes retained after filtering by homology threshold {homology_threshold}")
+                retained_probes.append(probe_info)
+
+        retained = len(retained_probes)
+        print(
+            f"{gene_symbol}: {retained}/{started} probes retained after "
+            f"filtering by homology threshold {homology_threshold}",
+            flush=True,
+        )
+        return gene_symbol, retained_probes
+
+    filtered_probes_dict = {}
+
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        futures = {
+            executor.submit(process_gene, gene_symbol, probes): gene_symbol
+            for gene_symbol, probes in probes_dict.items()
+        }
+        for future in as_completed(futures):
+            gene_symbol, retained_probes = future.result()
+            filtered_probes_dict[gene_symbol] = retained_probes
+
     return filtered_probes_dict
 
 def select_probes_greedy(probes_dict, codebook, num_probes=64, target_gc=0.5, target_tm=81):
@@ -359,7 +375,7 @@ def filter_probes_by_deltaG_parallel(probes_dict, min_deltaG=0, temperature=76, 
             probe_info for probe_info in probes
             if dna_dg(probe_info['sequence'], temperature) > min_deltaG
         ]
-        print(f"{gene_symbol}: {len(filtered)}/{len(probes)} probes retained after deltaG filtering")
+        print(f"{gene_symbol}: {len(filtered)}/{len(probes)} probes retained after deltaG filtering", flush=True)
         return gene_symbol, filtered
 
     filtered_probes_dict = {}
@@ -421,23 +437,31 @@ def filter_self_and_cross_complementary_probes(probes_dict, min_complement_lengt
                 continue  # Remove cross-complementary probe
 
             filtered_probes.append(probe)
-        print(f"{gene}: {len(filtered_probes)}/{len(probes)} probes retained after self/cross complementarity filtering")
+        print(f"{gene}: {len(filtered_probes)}/{len(probes)} probes retained after self/cross complementarity filtering", flush=True)
         filtered_probes_dict[gene] = filtered_probes
 
     return filtered_probes_dict
 
 def assign_readouts_to_probes(selected_probes, codebook, readouts, num_readouts=2, equal_coverage=True, num_shuffles=100):
+    codebook_readouts = set(codebook.columns) - {'name', 'id'}
     for gene, probes in selected_probes.items():
         readout_candidates = [
             readout for readout in readouts
-            if codebook.loc[codebook['name'] == gene, readout].values[0] == 1
+            if readout in codebook_readouts and codebook.loc[codebook['name'] == gene, readout].values[0] == 1
         ]
         n_probes = len(probes)
         n_readouts = len(readout_candidates)
         total_assignments = n_probes * num_readouts
 
         if num_readouts > n_readouts:
-            raise ValueError(f"Not enough readouts available for gene {gene} to assign {num_readouts} readouts per probe.")
+            # Assign multiple of the same readout to the probe until it has num_readouts readouts
+            for probe in probes:
+                assigned = []
+                while len(assigned) < num_readouts:
+                    assigned.extend(readout_candidates)
+                random.shuffle(assigned)
+                probe['readouts'] = assigned[:num_readouts]
+            continue
 
         if num_readouts == n_readouts:
         # Each probe gets all readouts, but shuffled order
@@ -514,4 +538,4 @@ def export_probes_to_fasta(selected_probes, readouts, fprimer, rprimer, output_f
             records.append(record)
     with open(output_fasta_file, "w") as fasta_out:
         write(records, fasta_out, "fasta")
-    print(f"Probes with primers and readouts exported to {output_fasta_file}")
+    print(f"Probes with primers and readouts exported to {output_fasta_file}", flush=True)
