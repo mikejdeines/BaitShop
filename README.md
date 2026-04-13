@@ -1,3 +1,4 @@
+![logo](images/baitshop_logo.png)
 # BaitShop
 
 An all-in-one solution for MERFISH probe design!
