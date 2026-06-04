@@ -372,12 +372,11 @@ def assign_barcodes_linear(genes,
     return assignment, metrics
 
 
-def assign_barcodes_lowrank_gw(
+def assign_barcodes_gw(
     genes: List[str],
     barcodes: List[str],
     correlation_matrix: np.ndarray,
     distance_matrix: np.ndarray,
-    variance_fraction: float = 0.99,
     epsilon: float = 1e-3,
     max_iterations: int = 2000,
 ):
@@ -390,7 +389,6 @@ def assign_barcodes_lowrank_gw(
         barcodes: List of m barcode strings
         correlation_matrix: (n x n) gene correlations
         distance_matrix: (m x m) barcode similarity/distances
-        variance_fraction: Fraction of variance to capture for low-rank factorization
         epsilon: Entropic regularization
         max_iterations: GW solver iterations
 
@@ -404,16 +402,8 @@ def assign_barcodes_lowrank_gw(
     C = 0.5 * (correlation_matrix + correlation_matrix.T)
 
     eigvals, eigvecs = np.linalg.eigh(C)
-    eigvals_sorted_idx = np.argsort(eigvals)[::-1]  # descending
-    eigvals_sorted = eigvals[eigvals_sorted_idx]
-    eigvecs_sorted = eigvecs[:, eigvals_sorted_idx]
 
-    # Determine rank r to capture desired variance_fraction
-    cumulative_variance = np.cumsum(np.maximum(eigvals_sorted, 0))
-    total_variance = cumulative_variance[-1]
-    r = int(np.searchsorted(cumulative_variance / total_variance, variance_fraction)) + 1
-
-    U = eigvecs_sorted[:, :r] @ np.diag(np.sqrt(np.maximum(eigvals_sorted[:r], 0.0)))
+    U = eigvecs @ np.diag(np.sqrt(np.maximum(eigvals, 0.0)))
     U = jnp.array(U)
 
     D = jnp.array(distance_matrix)
@@ -432,7 +422,7 @@ def assign_barcodes_lowrank_gw(
         b=b,
     )
     solver = LRGromovWasserstein(
-        rank=r,
+        rank=n, # full gene rank
         epsilon=epsilon,
         max_iterations=max_iterations,
     )
